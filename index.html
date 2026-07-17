@@ -78,6 +78,10 @@
   .setrow .cap{font-size:11px;color:var(--mut);text-align:center}
   .sug{color:var(--ok);font-size:13px;font-weight:600}
   .back{display:inline-flex;align-items:center;gap:6px;color:var(--acc2);font-size:14px;font-weight:600;cursor:pointer;padding:6px 0}
+  .daychips{display:flex;gap:6px;overflow-x:auto;padding:8px 0 4px;margin-top:6px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  .daychips::-webkit-scrollbar{display:none}
+  .daychip{flex:0 0 auto;background:var(--panel2);border:1px solid var(--line);color:var(--mut);border-radius:20px;padding:9px 15px;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer;min-height:40px}
+  .daychip.on{background:var(--acc);border-color:var(--acc);color:#fff}
   .empty{color:var(--mut);text-align:center;padding:26px 10px}
   footer{color:var(--mut);font-size:12px;margin-top:22px;text-align:center}
   a{color:var(--acc2)}
@@ -109,6 +113,7 @@
   <!-- =================== TREINO =================== -->
   <div id="view-program">
     <section id="s-quiz" class="card">
+      <div class="back hidden" id="quiz-back">‹ Voltar ao treino</div>
       <div class="step">Etapa 1 de 3</div>
       <h2>Seu perfil</h2>
       <p class="sub">Define volume, split e intensidade do programa.</p>
@@ -141,6 +146,7 @@
     </section>
 
     <section id="s-photo" class="card hidden">
+      <div class="back hidden" id="photo-back2">‹ Voltar ao treino</div>
       <div class="step">Etapa 2 de 3</div>
       <h2>Análise por foto</h2>
       <p class="sub">A IA roda no seu celular. Foto de corpo inteiro, de frente, braços levemente afastados.</p>
@@ -162,7 +168,8 @@
       <p class="sub" id="plan-sub"></p>
       <div id="plan-meso"></div>
       <div class="kpi" id="plan-kpi"></div>
-      <p class="sub" style="margin-top:12px">👆 Toque num exercício para ver a execução e registrar suas cargas.</p>
+      <div class="daychips" id="plan-chips"></div>
+      <p class="sub" style="margin-top:6px">👆 Toque num exercício para ver a execução e registrar suas cargas.</p>
       <div id="plan-days"></div>
       <div id="plan-prog"></div>
       <div class="row"><button class="btn sec" id="back-photo">← Ajustar perfil</button><button class="btn sec" id="restart">Recomeçar</button></div>
@@ -224,7 +231,7 @@
 <script>
 /* ============ STORAGE ============ */
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};
-const S=Object.assign({days:4,time:60,level:'intermediario',goal:'hipertrofia',split:'auto',weak:[],meso:{week:1,length:5},swaps:{}}, LS.get('im_state',{}));
+const S=Object.assign({days:4,time:60,level:'intermediario',goal:'hipertrofia',split:'auto',weak:[],meso:{week:1,length:5},swaps:{},curDay:0}, LS.get('im_state',{}));
 S.weak=new Set(S.weak);
 if(!S.meso||!S.meso.length)S.meso={week:1,length:5};
 if(!S.swaps)S.swaps={};
@@ -374,7 +381,7 @@ function regenPlan(){LAST_PLAN=generate();savePlan();}
 /* ============ RENDER PLANO ============ */
 function renderPlan(save){
   const P=generate();
-  if(save){LAST_PLAN=P;savePlan();refreshProgress();}
+  LAST_PLAN=P;savePlan();if(save)refreshProgress();
   document.getElementById('plan-title').textContent='Programa · '+S.goal.charAt(0).toUpperCase()+S.goal.slice(1);
   const totalWeekSets=P.days.reduce((a,d)=>a+d.exs.reduce((x,e)=>x+e.sets,0),0);
   document.getElementById('plan-sub').textContent=`${P.nDays}x/semana · ${S.time} min · ${S.level}. `+(P.warn||'');
@@ -389,14 +396,9 @@ function renderPlan(save){
   document.getElementById('meso-next').onclick=()=>{S.meso.week=Math.min(S.meso.length,S.meso.week+1);saveState();renderPlan(true);};
   document.getElementById('meso-new').onclick=()=>{S.meso.week=1;saveState();renderPlan(true);alert('Novo mesociclo iniciado! As cargas continuam evoluindo pelo histórico.');};
   document.getElementById('plan-kpi').innerHTML=`<div><span>Dias</span><b>${P.nDays}x</b></div><div><span>Séries/sem</span><b>${totalWeekSets}</b></div><div><span>Semana</span><b>${meso.week}/${meso.length}</b></div>`;
-  const c=document.getElementById('plan-days');c.innerHTML='';
-  P.days.forEach((d,di)=>{
-    const el=document.createElement('div');el.className='day';
-    const rows=d.exs.map((e,ei)=>{const done=loggedTodayCount(e.nome);return `<div class="exrow" data-d="${di}" data-i="${ei}"><div><div class="nm">${e.nome}${done?' ✅':''}</div><div class="mt">${LABEL[e.grupo]}${e.weak?' · <span style="color:var(--acc)">prioridade</span>':''}${e.tech?' · '+e.tech:''}</div></div><div class="rt">${e.sets}×${e.reps}</div><div class="chev">›</div></div>`;}).join('');
-    el.innerHTML=`<h4>${d.nome}</h4><div class="foc">Foco: ${d.foco.map(m=>LABEL[m]).join(' · ')}</div>${rows}`;
-    c.appendChild(el);
-  });
-  document.querySelectorAll('#plan-days .exrow').forEach(r=>r.onclick=()=>openExercise(+r.dataset.d,+r.dataset.i));
+  document.getElementById('plan-chips').innerHTML=P.days.map((d,i)=>`<button class="daychip" data-di="${i}">${d.nome}</button>`).join('');
+  document.querySelectorAll('#plan-chips .daychip').forEach(ch=>ch.onclick=()=>{S.curDay=+ch.dataset.di;saveState();renderDay();});
+  renderDay();
   const prog={hipertrofia:'<b>Progressão dupla:</b> comece na base da faixa. Bateu o topo em todas as séries com o RIR alvo? Aumente a carga (~2,5–5%) e volte à base. ',forca:'<b>Progressão linear:</b> 3–5 séries pesadas. Bateu as reps no topo? +2,5–5 kg na próxima. ',resistencia:'<b>Progressão por densidade:</b> reduza o descanso ou some reps antes de subir a carga. '}[S.goal];
   document.getElementById('plan-prog').innerHTML=`<div class="note" style="border-color:var(--acc)">${prog}<br><br><b>Deload:</b> a cada 4–6 semanas o volume cai ~50% por 1 semana.</div>`;
   document.querySelectorAll('#view-program section').forEach(s=>s.classList.add('hidden'));
@@ -404,6 +406,15 @@ function renderPlan(save){
   updateAssessBanner();
 }
 function loggedTodayCount(nome){return LOGS.filter(e=>e.nome===nome&&e.date.slice(0,10)===todayKey()).length;}
+function renderDay(){
+  if(!LAST_PLAN)return;
+  const cur=Math.min(S.curDay||0,LAST_PLAN.days.length-1);
+  document.querySelectorAll('#plan-chips .daychip').forEach(ch=>ch.classList.toggle('on',+ch.dataset.di===cur));
+  const d=LAST_PLAN.days[cur];
+  const rows=d.exs.map((e,ei)=>{const done=loggedTodayCount(e.nome);return `<div class="exrow" data-i="${ei}"><div><div class="nm">${e.nome}${done?' ✅':''}</div><div class="mt">${LABEL[e.grupo]}${e.weak?' · <span style="color:var(--acc)">prioridade</span>':''}${e.tech?' · '+e.tech:''}</div></div><div class="rt">${e.sets}×${e.reps}</div><div class="chev">›</div></div>`;}).join('');
+  document.getElementById('plan-days').innerHTML=`<div class="day"><h4>${d.nome}</h4><div class="foc">Foco: ${d.foco.map(m=>LABEL[m]).join(' · ')}</div>${rows}</div>`;
+  document.querySelectorAll('#plan-days .exrow').forEach(r=>r.onclick=()=>openExercise(cur,+r.dataset.i));
+}
 
 /* ============ TELA DO EXERCÍCIO ============ */
 let CUR={d:0,i:0};
@@ -417,7 +428,13 @@ function renderExercise(){
   const top=(e.tipo==='comp'?REPS[S.goal].comp:REPS[S.goal].iso).top;
   let sug='';
   if(last){const bestW=Math.max(0,...last.sets.map(s=>s.weight||0));const hitTop=last.sets.every(s=>(s.reps||0)>=top);sug=hitTop&&bestW>0?`<div class="sug">↑ sugestão: ${bestW+2.5} kg (você bateu o topo na última)</div>`:'';}
-  const draft=DRAFTS[draftKey(e.nome)]||[];
+  const isDeload=S.meso.week>=S.meso.length;
+  const bestW=last?Math.max(0,...last.sets.map(s=>s.weight||0)):0;
+  const deloadW=bestW>0?Math.round(bestW*0.65/2.5)*2.5:0;
+  const dkey=draftKey(e.nome);
+  if(isDeload&&!DRAFTS[dkey]&&deloadW>0){DRAFTS[dkey]=Array.from({length:e.sets},()=>({weight:deloadW}));saveDrafts();}
+  const draft=DRAFTS[dkey]||[];
+  const deloadNote=isDeload?`<div class="note" style="border-color:var(--warn)">🔽 Semana de deload: carga sugerida ~65% da última${deloadW>0?` — pré-preenchi <b>${deloadW} kg</b>`:''}. Fique longe da falha (RIR 3–4), sem técnicas avançadas.</div>`:'';
   const setInputs=Array.from({length:e.sets},(_,si)=>{const dv=draft[si]||{};return `<div class="setrow"><div class="lbl">Série ${si+1}</div><input type="number" inputmode="decimal" step="0.5" placeholder="kg" id="w${si}" value="${dv.weight??''}"><input type="number" inputmode="numeric" placeholder="reps" id="r${si}" value="${dv.reps??''}"></div>`;}).join('');
   const rs=restSeconds(e.rest||'90 s');
   const yt='https://www.youtube.com/results?search_query='+encodeURIComponent(e.nome+' execução');
@@ -435,6 +452,7 @@ function renderExercise(){
     <h3>Registrar séries de hoje</h3>
     <div class="sub" id="ex-last">${lastLine}</div>
     ${sug}
+    ${deloadNote}
     ${setInputs}
     ${last?'<button class="btn sec sm" id="ex-usar" style="margin-top:10px">↺ Usar cargas da última vez</button>':''}
     <button class="btn" id="ex-save">Salvar séries ✓</button>
@@ -699,12 +717,13 @@ function evaluateForm(ex,frames,res){
 }
 
 /* ============ UI / NAV ============ */
-function show(id){['s-quiz','s-photo','s-plan','s-exercise'].forEach(x=>document.getElementById(x).classList.toggle('hidden',x!==id));window.scrollTo(0,0);}
+function show(id){['s-quiz','s-photo','s-plan','s-exercise'].forEach(x=>document.getElementById(x).classList.toggle('hidden',x!==id));const hp=!!LAST_PLAN;document.getElementById('quiz-back').classList.toggle('hidden',!hp);document.getElementById('photo-back2').classList.toggle('hidden',!hp);window.scrollTo(0,0);}
 function showTab(t){
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x.dataset.tab===t));
   document.getElementById('view-program').classList.toggle('hidden',t!=='program');
   document.getElementById('view-progress').classList.toggle('hidden',t!=='progress');
   document.getElementById('view-form').classList.toggle('hidden',t!=='form');
+  if(t==='program'&&LAST_PLAN){const q=document.getElementById('s-quiz'),ph=document.getElementById('s-photo');if(!q.classList.contains('hidden')||!ph.classList.contains('hidden'))show('s-plan');}
   if(t==='progress')refreshProgress();
   window.scrollTo(0,0);
 }
@@ -727,6 +746,8 @@ renderWeak();
 document.getElementById('to-photo').onclick=()=>{if(!S.level||!S.goal){alert('Selecione nível e objetivo.');return;}show('s-photo');};
 document.getElementById('back-quiz').onclick=()=>show('s-quiz');
 document.getElementById('back-photo').onclick=()=>show('s-photo');
+document.getElementById('quiz-back').onclick=()=>show('s-plan');
+document.getElementById('photo-back2').onclick=()=>show('s-plan');
 document.getElementById('gen').onclick=()=>renderPlan(true);
 document.getElementById('restart').onclick=()=>{if(confirm('Recomeçar o questionário? Seu histórico é mantido.')){show('s-quiz');}};
 
