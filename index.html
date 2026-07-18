@@ -82,6 +82,9 @@
   .daychips::-webkit-scrollbar{display:none}
   .daychip{flex:0 0 auto;background:var(--panel2);border:1px solid var(--line);color:var(--mut);border-radius:20px;padding:9px 15px;font-size:13px;font-weight:600;white-space:nowrap;cursor:pointer;min-height:40px}
   .daychip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+  .daychip.done{border-color:var(--ok);color:var(--ok)}
+  .daychip.partial{border-color:var(--acc2);color:var(--acc2)}
+  .daychip.on.done,.daychip.on.partial{background:var(--acc);border-color:var(--acc);color:#fff}
   .empty{color:var(--mut);text-align:center;padding:26px 10px}
   footer{color:var(--mut);font-size:12px;margin-top:22px;text-align:center}
   a{color:var(--acc2)}
@@ -169,7 +172,7 @@
       <div id="plan-meso"></div>
       <div class="kpi" id="plan-kpi"></div>
       <div class="daychips" id="plan-chips"></div>
-      <p class="sub" style="margin-top:6px">👆 Toque num exercício para ver a execução e registrar suas cargas.</p>
+      <p class="sub" id="plan-hint" style="margin-top:6px">👆 Toque num exercício para ver a execução e registrar suas cargas.</p>
       <div id="plan-days"></div>
       <div id="plan-prog"></div>
       <div class="row"><button class="btn sec" id="back-photo">← Ajustar perfil</button><button class="btn sec" id="restart">Recomeçar</button></div>
@@ -396,8 +399,10 @@ function renderPlan(save){
   document.getElementById('meso-next').onclick=()=>{S.meso.week=Math.min(S.meso.length,S.meso.week+1);saveState();renderPlan(true);};
   document.getElementById('meso-new').onclick=()=>{S.meso.week=1;saveState();renderPlan(true);alert('Novo mesociclo iniciado! As cargas continuam evoluindo pelo histórico.');};
   document.getElementById('plan-kpi').innerHTML=`<div><span>Dias</span><b>${P.nDays}x</b></div><div><span>Séries/sem</span><b>${totalWeekSets}</b></div><div><span>Semana</span><b>${meso.week}/${meso.length}</b></div>`;
-  document.getElementById('plan-chips').innerHTML=P.days.map((d,i)=>`<button class="daychip" data-di="${i}">${d.nome}</button>`).join('');
+  document.getElementById('plan-chips').innerHTML=P.days.map((d,i)=>{const st=dayStatus(i);return `<button class="daychip ${st}" data-di="${i}">${st==='done'?'✅ ':st==='partial'?'◐ ':''}${d.nome}</button>`;}).join('');
   document.querySelectorAll('#plan-chips .daychip').forEach(ch=>ch.onclick=()=>{S.curDay=+ch.dataset.di;saveState();renderDay();});
+  const undone=P.days.findIndex((_,i)=>dayStatus(i)!=='done');
+  document.getElementById('plan-hint').textContent=undone<0?'✅ Semana concluída! Ótimo trabalho. Toque num exercício para registrar de novo.':`Próximo treino pendente: ${P.days[undone].nome}. Toque num exercício para registrar.`;
   renderDay();
   const prog={hipertrofia:'<b>Progressão dupla:</b> comece na base da faixa. Bateu o topo em todas as séries com o RIR alvo? Aumente a carga (~2,5–5%) e volte à base. ',forca:'<b>Progressão linear:</b> 3–5 séries pesadas. Bateu as reps no topo? +2,5–5 kg na próxima. ',resistencia:'<b>Progressão por densidade:</b> reduza o descanso ou some reps antes de subir a carga. '}[S.goal];
   document.getElementById('plan-prog').innerHTML=`<div class="note" style="border-color:var(--acc)">${prog}<br><br><b>Deload:</b> a cada 4–6 semanas o volume cai ~50% por 1 semana.</div>`;
@@ -406,6 +411,14 @@ function renderPlan(save){
   updateAssessBanner();
 }
 function loggedTodayCount(nome){return LOGS.filter(e=>e.nome===nome&&e.date.slice(0,10)===todayKey()).length;}
+// status do dia na semana corrente (janela de 7 dias): 'done' | 'partial' | 'none'
+function dayStatus(di){
+  const d=(LAST_PLAN&&LAST_PLAN.days[di]);if(!d||!d.exs.length)return 'none';
+  const cutoff=Date.now()-7*864e5;let logged=0;
+  d.exs.forEach(e=>{if(LOGS.some(l=>l.nome===e.nome&&new Date(l.date).getTime()>=cutoff))logged++;});
+  if(logged===0)return 'none';return logged>=d.exs.length?'done':'partial';
+}
+function firstUndoneDay(){if(!LAST_PLAN)return 0;const i=LAST_PLAN.days.findIndex((_,k)=>dayStatus(k)!=='done');return i<0?0:i;}
 function renderDay(){
   if(!LAST_PLAN)return;
   const cur=Math.min(S.curDay||0,LAST_PLAN.days.length-1);
@@ -761,7 +774,7 @@ vdrop.onclick=()=>vfile.click();
 vfile.onchange=()=>{if(vfile.files[0])handleVid(vfile.files[0]);};
 function handleVid(f){document.getElementById('vdrop-txt').textContent='✅ Vídeo carregado — analisando…';vplayer.classList.remove('hidden');vplayer.src=URL.createObjectURL(f);vplayer.onloadeddata=()=>{const ex=document.getElementById('form-ex').value;analyzeVideo(vplayer,ex);};}
 
-if(LAST_PLAN){renderPlan(false);show('s-plan');}
+if(LAST_PLAN){S.curDay=firstUndoneDay();saveState();renderPlan(false);show('s-plan');}
 refreshProgress();renderAssessHistory();updateAssessBanner();
 </script>
 </body>
