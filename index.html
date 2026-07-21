@@ -98,6 +98,13 @@
   #rtimer.done #rt-time{color:var(--ok)}
   #rtimer button{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:9px;padding:11px 13px;font-size:14px;font-weight:700;cursor:pointer}
   #rt-wl{font-size:13px;color:var(--ok)}
+  #s-exercise{padding-bottom:78px}
+  #ex-nav{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:var(--panel);border-top:1px solid var(--line);z-index:55}
+  #ex-nav button{flex:1;padding:14px 6px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-weight:700;font-size:14px;cursor:pointer}
+  #ex-nav button:disabled{opacity:.35}
+  #ex-nav .home{flex:1.2;background:var(--acc);border-color:var(--acc);color:#fff}
+  body.in-exercise #rtimer{bottom:calc(78px + env(safe-area-inset-bottom))}
+  .exrow.biset{border-color:var(--acc2)}
 </style>
 </head>
 <body>
@@ -325,7 +332,12 @@ function cueOf(n){return CUES[n]||'Execute com amplitude completa e controle na 
 const REPS={hipertrofia:{comp:{r:'6–10',rir:'RIR 1–2',rest:'2–3 min',top:10},iso:{r:'10–15',rir:'RIR 0–2',rest:'60–90 s',top:15}},
   forca:{comp:{r:'3–6',rir:'RIR 1–2',rest:'3–4 min',top:6},iso:{r:'6–10',rir:'RIR 1–2',rest:'2 min',top:10}},
   resistencia:{comp:{r:'12–20',rir:'RIR 2–3',rest:'45–60 s',top:20},iso:{r:'15–25',rir:'RIR 2–3',rest:'30–45 s',top:25}}};
-const TECHS=['Drop-set','Rest-pause','Myo-reps','Bi-set','Série contínua'];
+const TECHS=['Drop-set','Rest-pause','Myo-reps'];
+const TECH_INFO={
+  'Drop-set':'Na ÚLTIMA série: chegue à falha, reduza a carga ~20–30% e continue sem descanso até falhar de novo (pode repetir 1–2 quedas).',
+  'Rest-pause':'Na ÚLTIMA série: vá até a falha, descanse 15–20s e faça mais reps com a MESMA carga. Repita 2–3 vezes.',
+  'Myo-reps':'Na ÚLTIMA série: uma série de ativação até quase a falha; depois mini-séries de 3–5 reps com 3–5 respirações de descanso (3–5 vezes).'
+};
 
 /* ============ SPLIT + ENGINE ============ */
 function buildSplit(pref,days){
@@ -350,7 +362,7 @@ function generate(){
   const isDeload=meso.week>=meso.length;
   MUSCLES.forEach(m=>{if(!weekly[m])return;const mav=VOL[m][1];if(isDeload)weekly[m]=Math.max(2,Math.round(weekly[m]*0.5));else weekly[m]=Math.min(mav,weekly[m]+(meso.week-1));});
   const cap=Math.max(8,Math.floor(S.time/3.2));
-  const out=[];const pc={};
+  const out=[];const pc={};let BISET=0;
   splitDays.forEach(day=>{
     let plan=day.foco.map(m=>({m,sets:Math.max(2,Math.round(weekly[m]/freq[m]))}));
     let total=plan.reduce((a,b)=>a+b.sets,0);
@@ -363,19 +375,30 @@ function generate(){
       const perEx=[];let rem=p.sets;for(let i=0;i<nEx;i++){const s=Math.max(2,Math.round(rem/(nEx-i)));perEx.push(Math.min(4,s));rem-=Math.min(4,s);}
       const pool=[...EX[p.m]].sort((a,b)=>(a[1]==='comp'?-1:1)-(b[1]==='comp'?-1:1));
       const start=(pc[p.m]||0);
+      const gexs=[];
       for(let i=0;i<nEx;i++){
         const [gnome,gtipo]=pool[(start+i)%pool.length];
         let nome=gnome,tipo=gtipo;const sw=S.swaps&&S.swaps[p.m+'#'+gnome];
         if(sw){const f=EX[p.m].find(x=>x[0]===sw);if(f){nome=f[0];tipo=f[1];}}
         const rp=tipo==='comp'?REPS[S.goal].comp:REPS[S.goal].iso;
-        let tech=null;if(tipo==='iso'&&S.level!=='iniciante'&&(i===nEx-1||isWeak))tech=TECHS[(start+i)%TECHS.length];
-        exs.push({grupo:p.m,orig:gnome,nome,tipo,sets:perEx[i],reps:rp.r,rir:rp.rir,rest:rp.rest,tech,weak:isWeak});
+        gexs.push({grupo:p.m,orig:gnome,nome,tipo,sets:perEx[i],reps:rp.r,rir:rp.rir,rest:rp.rest,tech:null,biset:null,bisetPos:null,weak:isWeak});
       }
+      // Técnicas (intermediário+): 2+ isolados = bi-set real; 1 isolado = técnica na última série
+      if(S.level!=='iniciante'){
+        const isoIdx=gexs.map((x,ix)=>x.tipo==='iso'?ix:-1).filter(ix=>ix>=0);
+        if(isoIdx.length>=2){
+          const a=isoIdx[isoIdx.length-2],b=isoIdx[isoIdx.length-1],pid=++BISET;
+          gexs[a].biset=pid;gexs[a].bisetPos='a';gexs[b].biset=pid;gexs[b].bisetPos='b';
+        }else if(isoIdx.length===1){
+          gexs[isoIdx[0]].tech=TECHS[start%TECHS.length];
+        }
+      }
+      gexs.forEach(g=>exs.push(g));
       pc[p.m]=start+nEx;
     });
     out.push({nome:day.nome,foco:day.foco,exs});
   });
-  if(isDeload)out.forEach(d=>d.exs.forEach(e=>{e.rir='RIR 3–4';e.tech=null;}));
+  if(isDeload)out.forEach(d=>d.exs.forEach(e=>{e.rir='RIR 3–4';e.tech=null;e.biset=null;e.bisetPos=null;}));
   return {days:out,warn,nDays,weekly,isDeload,meso};
 }
 function stallExercises(){const out=[];allLoggedExercises().forEach(n=>{const h=[];LOGS.forEach(e=>{if(e.nome===n)h.push({bw:Math.max(0,...e.sets.map(st=>st.weight||0)),br:Math.max(0,...e.sets.map(st=>st.reps||0))});});if(h.length>=3){const a=h[h.length-3],c=h[h.length-1];if(c.bw<=a.bw&&c.br<=a.br)out.push(n);}});return out;}
@@ -383,6 +406,7 @@ function regenPlan(){LAST_PLAN=generate();savePlan();}
 
 /* ============ RENDER PLANO ============ */
 function renderPlan(save){
+  document.body.classList.remove('in-exercise');
   const P=generate();
   LAST_PLAN=P;savePlan();if(save)refreshProgress();
   document.getElementById('plan-title').textContent='Programa · '+S.goal.charAt(0).toUpperCase()+S.goal.slice(1);
@@ -419,12 +443,24 @@ function dayStatus(di){
   if(logged===0)return 'none';return logged>=d.exs.length?'done':'partial';
 }
 function firstUndoneDay(){if(!LAST_PLAN)return 0;const i=LAST_PLAN.days.findIndex((_,k)=>dayStatus(k)!=='done');return i<0?0:i;}
+// "paradas" do dia: cada bi-set conta como 1 parada (índice do 1º exercício do par)
+function stopIndices(di){const day=LAST_PLAN.days[di];const stops=[];const seen={};day.exs.forEach((e,ix)=>{if(e.biset){if(!seen[e.biset]){seen[e.biset]=1;stops.push(ix);}}else stops.push(ix);});return stops;}
+function blockAt(di,ix){const day=LAST_PLAN.days[di];const e=day.exs[ix];if(e&&e.biset)return day.exs.map((x,k)=>({x,k})).filter(o=>o.x.biset===e.biset);return [{x:day.exs[ix],k:ix}];}
 function renderDay(){
   if(!LAST_PLAN)return;
   const cur=Math.min(S.curDay||0,LAST_PLAN.days.length-1);
   document.querySelectorAll('#plan-chips .daychip').forEach(ch=>ch.classList.toggle('on',+ch.dataset.di===cur));
   const d=LAST_PLAN.days[cur];
-  const rows=d.exs.map((e,ei)=>{const done=loggedTodayCount(e.nome);return `<div class="exrow" data-i="${ei}"><div><div class="nm">${e.nome}${done?' ✅':''}</div><div class="mt">${LABEL[e.grupo]}${e.weak?' · <span style="color:var(--acc)">prioridade</span>':''}${e.tech?' · '+e.tech:''}</div></div><div class="rt">${e.sets}×${e.reps}</div><div class="chev">›</div></div>`;}).join('');
+  const rows=stopIndices(cur).map(ix=>{
+    const blk=blockAt(cur,ix);
+    if(blk.length>1){
+      const done=blk.every(o=>loggedTodayCount(o.x.nome));
+      const nm=blk.map(o=>o.x.nome).join(' + ');
+      return `<div class="exrow biset" data-i="${ix}"><div><div class="nm">🔗 Bi-set${done?' ✅':''}</div><div class="mt">${nm}</div></div><div class="rt">${blk[0].x.sets}×${blk[0].x.reps}</div><div class="chev">›</div></div>`;
+    }
+    const e=blk[0].x;const done=loggedTodayCount(e.nome);
+    return `<div class="exrow" data-i="${ix}"><div><div class="nm">${e.nome}${done?' ✅':''}</div><div class="mt">${LABEL[e.grupo]}${e.weak?' · <span style="color:var(--acc)">prioridade</span>':''}${e.tech?' · '+e.tech:''}</div></div><div class="rt">${e.sets}×${e.reps}</div><div class="chev">›</div></div>`;
+  }).join('');
   document.getElementById('plan-days').innerHTML=`<div class="day"><h4>${d.nome}</h4><div class="foc">Foco: ${d.foco.map(m=>LABEL[m]).join(' · ')}</div>${rows}</div>`;
   document.querySelectorAll('#plan-days .exrow').forEach(r=>r.onclick=()=>openExercise(cur,+r.dataset.i));
 }
@@ -433,59 +469,81 @@ function renderDay(){
 let CUR={d:0,i:0};
 function draftKey(nome){return todayKey()+'|'+nome;}
 function lastEntryFor(name){for(let i=LOGS.length-1;i>=0;i--){if(LOGS[i].nome===name)return LOGS[i];}return null;}
-function openExercise(d,i){CUR={d,i};renderExercise();document.querySelectorAll('#view-program section').forEach(s=>s.classList.add('hidden'));document.getElementById('s-exercise').classList.remove('hidden');window.scrollTo(0,0);}
-function renderExercise(){
-  const e=LAST_PLAN.days[CUR.d].exs[CUR.i];
-  const sec=document.getElementById('s-exercise');
+function openExercise(d,i){const day=LAST_PLAN.days[d];const e=day.exs[i];if(e&&e.biset){const first=day.exs.findIndex(x=>x.biset===e.biset);if(first>=0)i=first;}CUR={d,i};document.body.classList.add('in-exercise');renderExercise();document.querySelectorAll('#view-program section').forEach(s=>s.classList.add('hidden'));document.getElementById('s-exercise').classList.remove('hidden');window.scrollTo(0,0);}
+function exMemberHTML(e,k){
   const last=lastEntryFor(e.nome);
   const top=(e.tipo==='comp'?REPS[S.goal].comp:REPS[S.goal].iso).top;
   let sug='';
-  if(last){const bestW=Math.max(0,...last.sets.map(s=>s.weight||0));const hitTop=last.sets.every(s=>(s.reps||0)>=top);sug=hitTop&&bestW>0?`<div class="sug">↑ sugestão: ${bestW+2.5} kg (você bateu o topo na última)</div>`:'';}
+  if(last){const bW=Math.max(0,...last.sets.map(s=>s.weight||0));const hitTop=last.sets.every(s=>(s.reps||0)>=top);if(hitTop&&bW>0)sug=`<div class="sug">↑ sugestão: ${bW+2.5} kg (bateu o topo na última)</div>`;}
   const isDeload=S.meso.week>=S.meso.length;
   const bestW=last?Math.max(0,...last.sets.map(s=>s.weight||0)):0;
   const deloadW=bestW>0?Math.round(bestW*0.65/2.5)*2.5:0;
   const dkey=draftKey(e.nome);
   if(isDeload&&!DRAFTS[dkey]&&deloadW>0){DRAFTS[dkey]=Array.from({length:e.sets},()=>({weight:deloadW}));saveDrafts();}
   const draft=DRAFTS[dkey]||[];
-  const deloadNote=isDeload?`<div class="note" style="border-color:var(--warn)">🔽 Semana de deload: carga sugerida ~65% da última${deloadW>0?` — pré-preenchi <b>${deloadW} kg</b>`:''}. Fique longe da falha (RIR 3–4), sem técnicas avançadas.</div>`:'';
-  const setInputs=Array.from({length:e.sets},(_,si)=>{const dv=draft[si]||{};return `<div class="setrow"><div class="lbl">Série ${si+1}</div><input type="number" inputmode="decimal" step="0.5" placeholder="kg" id="w${si}" value="${dv.weight??''}"><input type="number" inputmode="numeric" placeholder="reps" id="r${si}" value="${dv.reps??''}"></div>`;}).join('');
-  const rs=restSeconds(e.rest||'90 s');
+  const deloadNote=isDeload?`<div class="note" style="border-color:var(--warn)">🔽 Deload: ~65% da última${deloadW>0?` — pré-preenchi <b>${deloadW} kg</b>`:''}. Longe da falha (RIR 3–4).</div>`:'';
+  const setInputs=Array.from({length:e.sets},(_,si)=>{const dv=draft[si]||{};return `<div class="setrow"><div class="lbl">Série ${si+1}</div><input type="number" inputmode="decimal" step="0.5" placeholder="kg" id="w${k}_${si}" value="${dv.weight??''}"><input type="number" inputmode="numeric" placeholder="reps" id="r${k}_${si}" value="${dv.reps??''}"></div>`;}).join('');
   const yt='https://www.youtube.com/results?search_query='+encodeURIComponent(e.nome+' execução');
-  const lastLine=last?`Última vez (${new Date(last.date).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}): ${last.sets.map(s=>`${s.weight??'–'}kg×${s.reps??'–'}`).join(', ')}`:'Sem registro anterior.';
-  const hist=LOGS.filter(x=>x.nome===e.nome).slice(-4).reverse().map(x=>`<div class="metric"><span>${new Date(x.date).toLocaleDateString('pt-BR',{day:'2-digit',month:'short'})}</span><b>${x.sets.map(s=>`${s.weight??'–'}×${s.reps??'–'}`).join(', ')}</b></div>`).join('');
+  const lastLine=last?`Última (${new Date(last.date).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}): ${last.sets.map(s=>`${s.weight??'–'}kg×${s.reps??'–'}`).join(', ')}${last.techReps?` +${last.techReps} (téc)`:''}`:'Sem registro anterior.';
+  let techBlock='';
+  if(e.tech){const tv=(draft[e.sets]&&draft[e.sets].treps)??'';techBlock=`<div class="note" style="border-color:var(--acc2)">💥 <b>Última série — ${e.tech}:</b> ${TECH_INFO[e.tech]||''}</div><div class="setrow"><div class="lbl">${e.tech}</div><input type="number" inputmode="numeric" placeholder="reps na técnica" id="t${k}" value="${tv}"><div class="cap">reps extras feitas</div></div>`;}
+  return `
+    <h3 style="margin:12px 0 4px">${e.nome}</h3>
+    <div><span class="badge mus">${LABEL[e.grupo]}</span><span class="badge mus">${e.tipo==='comp'?'composto':'isolado'}</span>${e.weak?'<span class="badge prio">PRIORIDADE</span>':''}</div>
+    <div class="kpi" style="margin-top:8px"><div><span>Séries</span><b>${e.sets}</b></div><div><span>Reps</span><b>${e.reps}</b></div><div><span>Intens.</span><b>${e.rir}</b></div><div><span>Descanso</span><b>${e.rest}</b></div></div>
+    <div class="cue good" style="margin-top:8px"><div class="ic">🎯</div><div>${cueOf(e.nome)}</div></div>
+    <a href="${yt}" target="_blank" rel="noopener"><button class="btn ghost">▶ Ver demonstração (YouTube)</button></a>
+    <button class="btn sec sm" data-swap="${k}" style="margin-top:8px">⇄ Trocar exercício</button>
+    <div class="sub" style="margin-top:10px">${lastLine}</div>${sug}${deloadNote}
+    ${setInputs}${techBlock}
+    ${last?`<button class="btn sec sm" data-usar="${k}" style="margin-top:8px">↺ Usar cargas da última vez</button>`:''}
+  `;
+}
+function renderExercise(){
+  const sec=document.getElementById('s-exercise');
+  const block=blockAt(CUR.d,CUR.i);
+  const isBiset=block.length>1;
+  const stops=stopIndices(CUR.d);const pos=stops.indexOf(CUR.i);
+  const prevIx=pos>0?stops[pos-1]:null,nextIx=(pos>=0&&pos<stops.length-1)?stops[pos+1]:null;
+  const rest=block[0].x.rest;const rs=restSeconds(rest||'90 s');
+  const bisetHead=isBiset?`<div class="note" style="border-color:var(--acc)">🔗 <b>Bi-set:</b> faça os dois exercícios em sequência, <b>sem descanso entre eles</b>. Só descanse depois de terminar o par.</div>`:'';
+  const members=block.map(o=>exMemberHTML(o.x,o.k)).join(isBiset?'<hr style="border:none;border-top:1px dashed var(--line);margin:14px 0">':'');
   sec.innerHTML=`
     <div class="back" id="ex-back">‹ Voltar ao treino</div>
-    <h2>${e.nome}</h2>
-    <div style="margin:6px 0 2px"><span class="badge mus">${LABEL[e.grupo]}</span><span class="badge mus">${e.tipo==='comp'?'composto':'isolado'}</span>${e.weak?'<span class="badge prio">PRIORIDADE</span>':''}${e.tech?`<span class="badge tech">${e.tech}</span>`:''}</div>
-    <div class="kpi" style="margin-top:10px"><div><span>Séries</span><b>${e.sets}</b></div><div><span>Reps</span><b>${e.reps}</b></div><div><span>Intensidade</span><b>${e.rir}</b></div><div><span>Descanso</span><b>${e.rest}</b></div></div>
-    <h3>Como executar</h3>
-    <div class="cue good"><div class="ic">🎯</div><div>${cueOf(e.nome)}</div></div>
-    <a href="${yt}" target="_blank" rel="noopener"><button class="btn ghost">▶ Ver demonstração (YouTube)</button></a>
-    <div class="row" style="gap:8px;margin-top:8px"><button class="btn sec sm" id="ex-swap">⇄ Trocar exercício</button><button class="btn sec sm" id="ex-rest">⏱ Descanso (${e.rest})</button></div>
-    <h3>Registrar séries de hoje</h3>
-    <div class="sub" id="ex-last">${lastLine}</div>
-    ${sug}
-    ${deloadNote}
-    ${setInputs}
-    ${last?'<button class="btn sec sm" id="ex-usar" style="margin-top:10px">↺ Usar cargas da última vez</button>':''}
-    <button class="btn" id="ex-save">Salvar séries ✓</button>
-    ${hist?`<h3>Histórico deste exercício</h3>${hist}`:''}
-  `;
-  document.getElementById('ex-back').onclick=()=>{renderPlan(false);};
+    <h2>${isBiset?'Bi-set':block[0].x.nome}</h2>
+    ${bisetHead}${members}
+    <div class="row" style="margin-top:12px"><button class="btn sec sm" id="ex-rest">⏱ Descanso (${rest})</button></div>
+    <button class="btn" id="ex-save">Salvar ✓</button>
+    <div id="ex-nav">
+      <button id="nav-prev" ${prevIx===null?'disabled':''}>‹ Anterior</button>
+      <button class="home" id="nav-home">⌂ Treino</button>
+      <button id="nav-next" ${nextIx===null?'disabled':''}>Próximo ›</button>
+    </div>`;
+  const goPlan=()=>{document.body.classList.remove('in-exercise');renderPlan(false);};
+  document.getElementById('ex-back').onclick=goPlan;
+  document.getElementById('nav-home').onclick=goPlan;
   document.getElementById('ex-rest').onclick=()=>startRest(rs);
-  document.getElementById('ex-swap').onclick=()=>{swapEx(CUR.d,e.grupo,e.orig||e.nome);renderExercise();};
-  const usar=document.getElementById('ex-usar');if(usar)usar.onclick=()=>{const k=draftKey(e.nome);DRAFTS[k]=last.sets.map(s=>({weight:s.weight??undefined,reps:s.reps??undefined}));saveDrafts();renderExercise();};
-  // retenção de rascunho: grava a cada digitação
-  for(let si=0;si<e.sets;si++){
-    ['w','r'].forEach(pfx=>{const inp=document.getElementById(pfx+si);inp.oninput=()=>{const k=draftKey(e.nome);DRAFTS[k]=DRAFTS[k]||[];DRAFTS[k][si]=DRAFTS[k][si]||{};const field=pfx==='w'?'weight':'reps';DRAFTS[k][si][field]=inp.value===''?undefined:+inp.value;saveDrafts();};});
-  }
+  document.getElementById('nav-prev').onclick=()=>{if(prevIx!==null)openExercise(CUR.d,prevIx);};
+  document.getElementById('nav-next').onclick=()=>{if(nextIx!==null)openExercise(CUR.d,nextIx);};
+  block.forEach(o=>{
+    const e=o.x,k=o.k;
+    const sw=sec.querySelector(`[data-swap="${k}"]`);if(sw)sw.onclick=()=>{swapEx(CUR.d,e.grupo,e.orig||e.nome);renderExercise();};
+    const us=sec.querySelector(`[data-usar="${k}"]`);if(us)us.onclick=()=>{const l=lastEntryFor(e.nome);if(l){DRAFTS[draftKey(e.nome)]=l.sets.map(s=>({weight:s.weight??undefined,reps:s.reps??undefined}));saveDrafts();renderExercise();}};
+    for(let si=0;si<e.sets;si++){['w','r'].forEach(pfx=>{const inp=document.getElementById(pfx+k+'_'+si);if(!inp)return;inp.oninput=()=>{const kk=draftKey(e.nome);DRAFTS[kk]=DRAFTS[kk]||[];DRAFTS[kk][si]=DRAFTS[kk][si]||{};DRAFTS[kk][si][pfx==='w'?'weight':'reps']=inp.value===''?undefined:+inp.value;saveDrafts();};});}
+    const ti=document.getElementById('t'+k);if(ti)ti.oninput=()=>{const kk=draftKey(e.nome);DRAFTS[kk]=DRAFTS[kk]||[];DRAFTS[kk][e.sets]=DRAFTS[kk][e.sets]||{};DRAFTS[kk][e.sets].treps=ti.value===''?undefined:+ti.value;saveDrafts();};
+  });
   document.getElementById('ex-save').onclick=()=>{
-    const sets=[];for(let si=0;si<e.sets;si++){const w=document.getElementById('w'+si).value,r=document.getElementById('r'+si).value;if(w!==''||r!=='')sets.push({weight:w===''?null:+w,reps:r===''?null:+r});}
-    if(!sets.length){alert('Preencha ao menos uma série.');return;}
-    LOGS.push({date:new Date().toISOString(),dayName:LAST_PLAN.days[CUR.d].nome,nome:e.nome,grupo:e.grupo,sets});saveLogs();
-    delete DRAFTS[draftKey(e.nome)];saveDrafts();
-    refreshProgress();renderExercise();
-    alert('Séries registradas! 💪');
+    let saved=0;
+    block.forEach(o=>{
+      const e=o.x,k=o.k;const sets=[];
+      for(let si=0;si<e.sets;si++){const w=document.getElementById('w'+k+'_'+si).value,r=document.getElementById('r'+k+'_'+si).value;if(w!==''||r!=='')sets.push({weight:w===''?null:+w,reps:r===''?null:+r});}
+      if(!sets.length)return;
+      const entry={date:new Date().toISOString(),dayName:LAST_PLAN.days[CUR.d].nome,nome:e.nome,grupo:e.grupo,sets};
+      const ti=document.getElementById('t'+k);if(e.tech&&ti&&ti.value!==''){entry.tech=e.tech;entry.techReps=+ti.value;}
+      LOGS.push(entry);delete DRAFTS[draftKey(e.nome)];saved++;
+    });
+    if(!saved){alert('Preencha ao menos uma série.');return;}
+    saveLogs();saveDrafts();refreshProgress();renderExercise();alert('Registrado! 💪');
   };
 }
 function swapEx(d,grupo,orig){
@@ -730,7 +788,7 @@ function evaluateForm(ex,frames,res){
 }
 
 /* ============ UI / NAV ============ */
-function show(id){['s-quiz','s-photo','s-plan','s-exercise'].forEach(x=>document.getElementById(x).classList.toggle('hidden',x!==id));const hp=!!LAST_PLAN;document.getElementById('quiz-back').classList.toggle('hidden',!hp);document.getElementById('photo-back2').classList.toggle('hidden',!hp);window.scrollTo(0,0);}
+function show(id){['s-quiz','s-photo','s-plan','s-exercise'].forEach(x=>document.getElementById(x).classList.toggle('hidden',x!==id));document.body.classList.toggle('in-exercise',id==='s-exercise');const hp=!!LAST_PLAN;document.getElementById('quiz-back').classList.toggle('hidden',!hp);document.getElementById('photo-back2').classList.toggle('hidden',!hp);window.scrollTo(0,0);}
 function showTab(t){
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x.dataset.tab===t));
   document.getElementById('view-program').classList.toggle('hidden',t!=='program');
